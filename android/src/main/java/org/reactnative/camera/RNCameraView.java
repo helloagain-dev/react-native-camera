@@ -5,22 +5,10 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.media.CamcorderProfile;
 import android.os.Build;
+import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
 import android.util.SparseArray;
 import android.view.View;
-
-import com.facebook.react.bridge.Arguments;
-import com.facebook.react.bridge.LifecycleEventListener;
-import com.facebook.react.bridge.Promise;
-import com.facebook.react.bridge.ReadableMap;
-import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.uimanager.ThemedReactContext;
-import com.google.android.cameraview.CameraView;
-import com.google.android.gms.vision.face.Face;
-import com.google.zxing.BarcodeFormat;
-import com.google.zxing.DecodeHintType;
-import com.google.zxing.MultiFormatReader;
-import com.google.zxing.Result;
 
 import org.reactnative.camera.tasks.BarCodeScannerAsyncTask;
 import org.reactnative.camera.tasks.BarCodeScannerAsyncTaskDelegate;
@@ -29,12 +17,23 @@ import org.reactnative.camera.tasks.FaceDetectorAsyncTaskDelegate;
 import org.reactnative.camera.tasks.ResolveTakenPictureAsyncTask;
 import org.reactnative.camera.utils.ImageDimensions;
 import org.reactnative.camera.utils.RNFileUtils;
+import org.reactnative.camera.utils.ScopedContext;
 import org.reactnative.facedetector.RNFaceDetector;
+import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.LifecycleEventListener;
+import com.facebook.react.bridge.Promise;
+import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.uimanager.ThemedReactContext;
+import com.google.android.cameraview.AspectRatio;
+import com.google.android.cameraview.CameraView;
+import com.google.android.gms.vision.barcode.Barcode;
+import com.google.android.gms.vision.barcode.BarcodeDetector;
+import com.google.android.gms.vision.face.Face;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.EnumMap;
-import java.util.EnumSet;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -47,7 +46,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   private Map<Promise, ReadableMap> mPictureTakenOptions = new ConcurrentHashMap<>();
   private Map<Promise, File> mPictureTakenDirectories = new ConcurrentHashMap<>();
   private Promise mVideoRecordedPromise;
-  private List<String> mBarCodeTypes = null;
+  private List<Integer> mBarCodeTypes = null;
 
   private boolean mIsPaused = false;
   private boolean mIsNew = true;
@@ -57,7 +56,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   public volatile boolean faceDetectorTaskLock = false;
 
   // Scanning-related properties
-  private final MultiFormatReader mMultiFormatReader = new MultiFormatReader();
+  private BarcodeDetector mDetector;
   private final RNFaceDetector mFaceDetector;
   private boolean mShouldDetectFaces = false;
   private boolean mShouldScanBarCodes = false;
@@ -67,8 +66,8 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
 
   public RNCameraView(ThemedReactContext themedReactContext) {
     super(themedReactContext);
-    initBarcodeReader();
     mThemedReactContext = themedReactContext;
+    initBarcodeReader();
     mFaceDetector = new RNFaceDetector(themedReactContext);
     setupFaceDetector();
     themedReactContext.addLifecycleEventListener(this);
@@ -113,7 +112,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
         if (mShouldScanBarCodes && !barCodeScannerTaskLock && cameraView instanceof BarCodeScannerAsyncTaskDelegate) {
           barCodeScannerTaskLock = true;
           BarCodeScannerAsyncTaskDelegate delegate = (BarCodeScannerAsyncTaskDelegate) cameraView;
-          new BarCodeScannerAsyncTask(delegate, mMultiFormatReader, data, width, height).execute();
+          new BarCodeScannerAsyncTask(delegate, mDetector, data, width, height).execute();
         }
 
         if (mShouldDetectFaces && !faceDetectorTaskLock && cameraView instanceof FaceDetectorAsyncTaskDelegate) {
@@ -152,7 +151,7 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
   }
 
   public void setBarCodeTypes(List<String> barCodeTypes) {
-    mBarCodeTypes = barCodeTypes;
+    mBarCodeTypes = Arrays.asList(Barcode.CODE_128);
     initBarcodeReader();
   }
 
@@ -192,20 +191,16 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
    * Additionally supports [codabar, code128, maxicode, rss14, rssexpanded, upc_a, upc_ean]
    */
   private void initBarcodeReader() {
-    EnumMap<DecodeHintType, Object> hints = new EnumMap<>(DecodeHintType.class);
-    EnumSet<BarcodeFormat> decodeFormats = EnumSet.noneOf(BarcodeFormat.class);
-
+    int barcodeFormats = 0;
     if (mBarCodeTypes != null) {
-      for (String code : mBarCodeTypes) {
-        String formatString = (String) CameraModule.VALID_BARCODE_TYPES.get(code);
-        if (formatString != null) {
-          decodeFormats.add(BarcodeFormat.valueOf(code));
-        }
+      for (Integer code : mBarCodeTypes) {
+        barcodeFormats = barcodeFormats | code;
       }
     }
 
-    hints.put(DecodeHintType.POSSIBLE_FORMATS, decodeFormats);
-    mMultiFormatReader.setHints(hints);
+    mDetector = new BarcodeDetector.Builder(mThemedReactContext)
+            .setBarcodeFormats(barcodeFormats)
+            .build();
   }
 
   public void setShouldScanBarCodes(boolean shouldScanBarCodes) {
@@ -213,8 +208,8 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     setScanning(mShouldDetectFaces || mShouldScanBarCodes);
   }
 
-  public void onBarCodeRead(Result barCode) {
-    String barCodeType = barCode.getBarcodeFormat().toString();
+  public void onBarCodeRead(Barcode barCode) {
+    int barCodeType = barCode.format;
     if (!mShouldScanBarCodes || !mBarCodeTypes.contains(barCodeType)) {
       return;
     }
@@ -224,7 +219,6 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
 
   public void onBarCodeScanningTaskCompleted() {
     barCodeScannerTaskLock = false;
-    mMultiFormatReader.reset();
   }
 
   /**
@@ -325,5 +319,10 @@ public class RNCameraView extends CameraView implements LifecycleEventListener, 
     } else {
       return true;
     }
+  }
+
+  @Override
+  public void setAspectRatio(@NonNull AspectRatio ratio) {
+    super.setAspectRatio(ratio);
   }
 }

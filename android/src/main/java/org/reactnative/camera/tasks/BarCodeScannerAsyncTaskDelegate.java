@@ -1,8 +1,8 @@
 package org.reactnative.camera.tasks;
 
-import com.google.zxing.Result;
+import com.google.android.gms.vision.barcode.Barcode;
 
 public interface BarCodeScannerAsyncTaskDelegate {
-  void onBarCodeRead(Result barCode);
+  void onBarCodeRead(Barcode barCode);
   void onBarCodeScanningTaskCompleted();
 }

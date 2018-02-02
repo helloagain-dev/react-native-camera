@@ -7,19 +7,17 @@ import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.uimanager.events.Event;
 import com.facebook.react.uimanager.events.RCTEventEmitter;
-import com.google.zxing.Result;
-
-import java.util.Date;
+import com.google.android.gms.vision.barcode.Barcode;
 
 public class BarCodeReadEvent extends Event<BarCodeReadEvent> {
   private static final Pools.SynchronizedPool<BarCodeReadEvent> EVENTS_POOL =
       new Pools.SynchronizedPool<>(3);
 
-  private Result mBarCode;
+  private Barcode mBarCode;
 
   private BarCodeReadEvent() {}
 
-  public static BarCodeReadEvent obtain(int viewTag, Result barCode) {
+  public static BarCodeReadEvent obtain(int viewTag, Barcode barCode) {
     BarCodeReadEvent event = EVENTS_POOL.acquire();
     if (event == null) {
       event = new BarCodeReadEvent();
@@ -28,7 +26,7 @@ public class BarCodeReadEvent extends Event<BarCodeReadEvent> {
     return event;
   }
 
-  private void init(int viewTag, Result barCode) {
+  private void init(int viewTag, Barcode barCode) {
     super.init(viewTag);
     mBarCode = barCode;
   }
@@ -42,7 +40,7 @@ public class BarCodeReadEvent extends Event<BarCodeReadEvent> {
    */
   @Override
   public short getCoalescingKey() {
-    int hashCode = mBarCode.getText().hashCode() % Short.MAX_VALUE;
+    int hashCode = mBarCode.rawValue.hashCode() % Short.MAX_VALUE;
     return (short) hashCode;
   }
 
@@ -60,8 +58,8 @@ public class BarCodeReadEvent extends Event<BarCodeReadEvent> {
     WritableMap event = Arguments.createMap();
 
     event.putInt("target", getViewTag());
-    event.putString("data", mBarCode.getText());
-    event.putString("type", mBarCode.getBarcodeFormat().toString());
+    event.putString("data", mBarCode.rawValue);
+    event.putInt("type", mBarCode.format);
 
     return event;
   }
