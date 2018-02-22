@@ -1,13 +1,11 @@
 #import "RNCamera.h"
 #import "RNCameraUtils.h"
 #import "RNImageUtils.h"
-#import "RNCameraManager.h"
 #import "RNFileSystem.h"
 #import <React/RCTEventDispatcher.h>
 #import <React/RCTLog.h>
 #import <React/RCTUtils.h>
 #import <React/UIView+React.h>
-#import <AVFoundation/AVFoundation.h>
 
 @interface RNCamera ()
 
@@ -51,6 +49,7 @@ static NSDictionary *defaultFaceDetectorOptions = nil;
                                                  selector:@selector(orientationChanged:)
                                                      name:UIDeviceOrientationDidChangeNotification
                                                    object:nil];
+        self.autoFocus = -1;
         //        [[NSNotificationCenter defaultCenter] addObserver:self
         //                                                 selector:@selector(bridgeDidForeground:)
         //                                                     name:EX_UNVERSIONED(@"EXKernelBridgeDidForegroundNotification")
@@ -211,7 +210,7 @@ static NSDictionary *defaultFaceDetectorOptions = nil;
     AVCaptureDevice *device = [self.videoCaptureDeviceInput device];
     NSError *error = nil;
     
-    if (device.focusMode != RNCameraAutoFocusOff) {
+    if (self.autoFocus < 0 || device.focusMode != RNCameraAutoFocusOff) {
         return;
     }
     
@@ -322,6 +321,10 @@ static NSDictionary *defaultFaceDetectorOptions = nil;
             CGRect cropRect = CGRectMake(frame.origin.x * width, frame.origin.y * height, frame.size.width * width, frame.size.height * height);
             takenImage = [RNImageUtils cropImage:takenImage toRect:cropRect];
             
+            if ([options[@"mirrorImage"] boolValue]) {
+                takenImage = [RNImageUtils mirrorImage:takenImage];
+            }
+            
             NSMutableDictionary *response = [[NSMutableDictionary alloc] init];
             float quality = [options[@"quality"] floatValue];
             NSData *takenImageData = UIImageJPEGRepresentation(takenImage, quality);
@@ -338,16 +341,21 @@ static NSDictionary *defaultFaceDetectorOptions = nil;
                 int imageRotation;
                 switch (takenImage.imageOrientation) {
                     case UIImageOrientationLeft:
+                    case UIImageOrientationRightMirrored:
                         imageRotation = 90;
                         break;
                     case UIImageOrientationRight:
+                    case UIImageOrientationLeftMirrored:
                         imageRotation = -90;
                         break;
                     case UIImageOrientationDown:
+                    case UIImageOrientationDownMirrored:
                         imageRotation = 180;
                         break;
+                    case UIImageOrientationUpMirrored:
                     default:
                         imageRotation = 0;
+                        break;
                 }
                 [RNImageUtils updatePhotoMetadata:imageSampleBuffer withAdditionalData:@{ @"Orientation": @(imageRotation) } inResponse:response]; // TODO
             }
